@@ -1,45 +1,48 @@
 const express = require('express');
 const { ApolloServer } = require('apollo-server-express');
-const http = require('http');
+const { createServer } = require('http');
+const { useServer } = require('graphql-ws/lib/use/ws');
 const WebSocket = require('ws');
 const mongoose = require('mongoose');
-const fs = require('fs'); // Import the 'fs' module for reading files
+const fs = require('fs');
+const { makeExecutableSchema } = require('@graphql-tools/schema'); // Corrected import
 const typeDefs = require('./graphql/schema');
 const resolvers = require('./graphql/resolvers');
 
-// Connect to MongoDB (replace 'your-database-uri' with your MongoDB URI)
-mongoose.connect('mongodb://localhost:27017', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
+// Connect to MongoDB
+mongoose.connect('mongodb://localhost:27017/sampledb', {
+  // Removed deprecated connection options
 });
 
 const app = express();
-const httpServer = http.createServer(app); // Create an HTTP server
+const httpServer = createServer(app);
 
-// Initialize ApolloServer with GraphQL schema and resolvers
-const server = new ApolloServer({
+// Create an executable schema
+const schema = makeExecutableSchema({
   typeDefs,
   resolvers,
+});
+
+// Initialize ApolloServer with the executable schema
+const server = new ApolloServer({
+  schema,
   introspection: true,
   playground: true,
 });
 
-// Start Apollo Server asynchronously
+// Apply GraphQL middleware
 server.start().then(() => {
-  // Apply GraphQL middleware to the Express app
   server.applyMiddleware({ app });
 
-  // WebSocket server for real-time updates
-  const wss = new WebSocket.Server({ server: httpServer });
-
-  wss.on('connection', (ws) => {
-    console.log('WebSocket client connected');
-    ws.on('message', (message) => {
-      console.log(`Received: ${message}`);
-    });
+  // Set up WebSocket server for GraphQL subscriptions with graphql-ws
+  const wsServer = new WebSocket.Server({
+    server: httpServer,
+    path: '/graphql',
   });
 
-  // Serve the 'index.html' file when a request is made to '/'
+  useServer({ schema }, wsServer);
+
+  // Serve static files or index.html
   app.get('/', (req, res) => {
     fs.readFile('index.html', 'utf8', (err, data) => {
       if (err) {
@@ -51,6 +54,7 @@ server.start().then(() => {
     });
   });
 
+  // Listen on httpServer
   httpServer.listen(4000, () => {
     console.log(`Server running at http://localhost:4000${server.graphqlPath}`);
   });
